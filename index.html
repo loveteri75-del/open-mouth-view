@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AI Visual Fix</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    
+    <style>
+        body { margin: 0; background-color: black; overflow: hidden; font-family: 'Suit', sans-serif; }
+        .container { position: relative; width: 100vw; height: 100vh; }
+
+        /* 비디오 (뒤) */
+        video { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            object-fit: cover; transform: scaleX(-1); z-index: 0; 
+        }
+
+        /* 캔버스 (앞 - 선 그리는 곳) */
+        canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            object-fit: cover; transform: scaleX(-1); z-index: 1; 
+        }
+
+        /* UI (맨 앞) */
+        #ui-panel {
+            position: absolute; top: 30px; left: 50%; transform: translateX(-50%);
+            width: 90%; z-index: 10; text-align: center;
+        }
+        .status-box {
+            background: rgba(0, 0, 0, 0.7); 
+            padding: 15px; border-radius: 15px;
+            border: 2px solid #fff; /* 테두리 흰색으로 강화 */
+        }
+        #main-msg { font-size: 1.5rem; font-weight: 800; color: white; display: block; margin-bottom: 5px; }
+        .metrics { display: flex; justify-content: space-around; border-top: 1px solid #777; padding-top: 10px; margin-top: 10px;}
+        .metric-val { font-size: 1.2rem; font-weight: bold; color: white; display: block; }
+        .metric-label { font-size: 0.8rem; color: #ccc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="ui-panel">
+            <div class="status-box" id="status-bg">
+                <span id="main-msg">AI 로딩 중...</span>
+                <div class="metrics">
+                    <div><span class="metric-label">입 벌림</span><br><span class="metric-val" id="val-mouth">-</span></div>
+                    <div><span class="metric-label">숙임(Pitch)</span><br><span class="metric-val" id="val-pitch">-</span></div>
+                    <div><span class="metric-label">회전(Yaw)</span><br><span class="metric-val" id="val-yaw">-</span></div>
+                </div>
+            </div>
+        </div>
+        <video id="input_video" playsinline></video>
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <script type="module">
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const ctx = canvasElement.getContext('2d');
+        
+        const mainMsg = document.getElementById('main-msg');
+        const statusBg = document.getElementById('status-bg');
+        const valMouth = document.getElementById('val-mouth');
+        const valPitch = document.getElementById('val-pitch');
+        const valYaw = document.getElementById('val-yaw');
+
+        function onResults(results) {
+            // 1. 화면 크기 강제 동기화 (NaN 해결 핵심)
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+            
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                mainMsg.innerText = "얼굴 찾는 중...";
+                return;
+            }
+
+            const landmarks = results.multiFaceLandmarks[0];
+
+            // 2. 좌표 변환 (안전하게)
+            const toPixel = (idx) => {
+                return { 
+                    x: landmarks[idx].x * canvasElement.width, 
+                    y: landmarks[idx].y * canvasElement.height 
+                };
+            };
+            
+            // 거리 계산
+            const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+
+            // 데이터 계산 (0 나누기 방지)
+            const p_top = toPixel(10); const p_bottom = toPixel(152);
+            const p_ulip = toPixel(13); const p_llip = toPixel(14);
+            const p_nose = toPixel(1);
+            const p_lear = toPixel(234); const p_rear = toPixel(454);
+
+            const faceHeight = dist(p_top, p_bottom) || 1; // 0 방지
+            const mouthRatio = (dist(p_ulip, p_llip) / faceHeight) * 100;
+            const yawRatio = (dist(p_nose, p_lear) / (dist(p_nose, p_rear) || 1));
+            
+            // Pitch (상대 좌표 사용)
+            const pitchDiff = (landmarks[1].y - (landmarks[234].y + landmarks[454].y)/2) * 100;
+
+            // 판독
+            const TH_MOUTH = 7.0; 
+            const isReady = (mouthRatio > TH_MOUTH) && (yawRatio > 0.6 && yawRatio < 1.4);
+            
+            // UI 업데이트
+            let color = isReady ? "#00FF00" : "#FF0055"; // 초록 vs 핫핑크
+            mainMsg.innerText = isReady ? "촬영 가능 (READY)" : "조정 필요";
+            mainMsg.style.color = color;
+            statusBg.style.borderColor = color;
+
+            valMouth.innerText = mouthRatio.toFixed(1);
+            valPitch.innerText = pitchDiff.toFixed(1);
+            valYaw.innerText = yawRatio.toFixed(2);
+
+            // --- [시각화 강화] 선을 아주 두껍게 그림 ---
+            ctx.lineWidth = 4; // 선 두께 4 (매우 두꺼움)
+            ctx.lineCap = "round";
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+
+            // 1. 십자선 그리기
+            ctx.beginPath();
+            ctx.moveTo(p_top.x, p_top.y); ctx.lineTo(p_bottom.x, p_bottom.y);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(p_lear.x, p_lear.y); ctx.lineTo(p_rear.x, p_rear.y); // 귀-귀 연결선
+            ctx.stroke();
+
+            // 2. 코에 왕점 찍기
+            ctx.beginPath();
+            ctx.arc(p_nose.x, p_nose.y, 10, 0, 2*Math.PI); // 반지름 10 (큰 점)
+            ctx.fill();
+
+            // 3. 입술 위아래 점 찍기
+            ctx.fillStyle = "yellow"; // 입술 점은 노란색으로 포인트
+            ctx.beginPath(); ctx.arc(p_ulip.x, p_ulip.y, 5, 0, 2*Math.PI); ctx.fill();
+            ctx.beginPath(); ctx.arc(p_llip.x, p_llip.y, 5, 0, 2*Math.PI); ctx.fill();
+        }
+
+        const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+        faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        faceMesh.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await faceMesh.send({image: videoElement}); },
+            width: 1280, height: 720
+        });
+        camera.start();
+    </script>
+</body>
+</html>
