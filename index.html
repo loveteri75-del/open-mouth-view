@@ -3,54 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AI Visual Fix</title>
+    <title>AI Open Mouth (Mobile Fix)</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     
     <style>
         body { margin: 0; background-color: black; overflow: hidden; font-family: 'Suit', sans-serif; }
+        
+        /* 컨테이너 */
         .container { position: relative; width: 100vw; height: 100vh; }
 
-        /* 비디오 (뒤) */
-        video { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; transform: scaleX(-1); z-index: 0; 
+        /* 비디오와 캔버스를 완벽하게 겹치기 위한 스타일 */
+        video, canvas { 
+            position: absolute; top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            object-fit: cover; /* 화면 꽉 채우기 */
+            transform: scaleX(-1); /* 거울 모드 */
         }
+        
+        video { z-index: 0; }
+        canvas { z-index: 1; }
 
-        /* 캔버스 (앞 - 선 그리는 곳) */
-        canvas { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; transform: scaleX(-1); z-index: 1; 
-        }
-
-        /* UI (맨 앞) */
+        /* UI 패널 */
         #ui-panel {
             position: absolute; top: 30px; left: 50%; transform: translateX(-50%);
             width: 90%; z-index: 10; text-align: center;
         }
+
         .status-box {
-            background: rgba(0, 0, 0, 0.7); 
-            padding: 15px; border-radius: 15px;
-            border: 2px solid #fff; /* 테두리 흰색으로 강화 */
+            background: rgba(0, 0, 0, 0.6); 
+            padding: 15px; border-radius: 12px;
+            border: 2px solid rgba(255,255,255,0.3);
+            backdrop-filter: blur(4px);
         }
-        #main-msg { font-size: 1.5rem; font-weight: 800; color: white; display: block; margin-bottom: 5px; }
-        .metrics { display: flex; justify-content: space-around; border-top: 1px solid #777; padding-top: 10px; margin-top: 10px;}
-        .metric-val { font-size: 1.2rem; font-weight: bold; color: white; display: block; }
-        .metric-label { font-size: 0.8rem; color: #ccc; }
+
+        #main-msg { font-size: 1.4rem; font-weight: 800; color: white; display: block; margin-bottom: 5px; text-shadow: 0 2px 4px black;}
+        
+        .metrics { display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px; margin-top: 8px;}
+        .metric-col { width: 33%; }
+        .metric-val { font-size: 1.1rem; font-weight: bold; color: white; display: block; }
+        .metric-label { font-size: 0.75rem; color: #ccc; }
     </style>
 </head>
 <body>
     <div class="container">
         <div id="ui-panel">
             <div class="status-box" id="status-bg">
-                <span id="main-msg">AI 로딩 중...</span>
+                <span id="main-msg">시스템 시작 중...</span>
                 <div class="metrics">
-                    <div><span class="metric-label">입 벌림</span><br><span class="metric-val" id="val-mouth">-</span></div>
-                    <div><span class="metric-label">숙임(Pitch)</span><br><span class="metric-val" id="val-pitch">-</span></div>
-                    <div><span class="metric-label">회전(Yaw)</span><br><span class="metric-val" id="val-yaw">-</span></div>
+                    <div class="metric-col"><span class="metric-label">입 벌림</span><br><span class="metric-val" id="val-mouth">-</span></div>
+                    <div class="metric-col"><span class="metric-label">숙임(Pitch)</span><br><span class="metric-val" id="val-pitch">-</span></div>
+                    <div class="metric-col"><span class="metric-label">회전(Yaw)</span><br><span class="metric-val" id="val-yaw">-</span></div>
                 </div>
             </div>
         </div>
+
         <video id="input_video" playsinline></video>
         <canvas id="output_canvas"></canvas>
     </div>
@@ -67,20 +74,23 @@
         const valYaw = document.getElementById('val-yaw');
 
         function onResults(results) {
-            // 1. 화면 크기 강제 동기화 (NaN 해결 핵심)
+            // [모바일 핵심 1] 캔버스 크기를 현재 브라우저 크기로 매 프레임 강제 동기화
             canvasElement.width = window.innerWidth;
             canvasElement.height = window.innerHeight;
             
             ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
+            // 얼굴 미검출 시
             if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
                 mainMsg.innerText = "얼굴 찾는 중...";
+                mainMsg.style.color = "yellow";
+                statusBg.style.borderColor = "yellow";
                 return;
             }
 
             const landmarks = results.multiFaceLandmarks[0];
 
-            // 2. 좌표 변환 (안전하게)
+            // [모바일 핵심 2] 좌표 변환 함수 (0~1 값을 현재 캔버스 픽셀로 변환)
             const toPixel = (idx) => {
                 return { 
                     x: landmarks[idx].x * canvasElement.width, 
@@ -88,29 +98,52 @@
                 };
             };
             
-            // 거리 계산
+            // 거리 계산 함수
             const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
 
-            // 데이터 계산 (0 나누기 방지)
+            // --- 데이터 계산 (NaN 방지 로직 포함) ---
             const p_top = toPixel(10); const p_bottom = toPixel(152);
             const p_ulip = toPixel(13); const p_llip = toPixel(14);
             const p_nose = toPixel(1);
             const p_lear = toPixel(234); const p_rear = toPixel(454);
 
-            const faceHeight = dist(p_top, p_bottom) || 1; // 0 방지
+            // 1. 입 벌림 (Mouth Ratio)
+            const faceHeight = dist(p_top, p_bottom) || 1; // 0으로 나누기 방지
             const mouthRatio = (dist(p_ulip, p_llip) / faceHeight) * 100;
-            const yawRatio = (dist(p_nose, p_lear) / (dist(p_nose, p_rear) || 1));
-            
-            // Pitch (상대 좌표 사용)
-            const pitchDiff = (landmarks[1].y - (landmarks[234].y + landmarks[454].y)/2) * 100;
 
-            // 판독
-            const TH_MOUTH = 7.0; 
-            const isReady = (mouthRatio > TH_MOUTH) && (yawRatio > 0.6 && yawRatio < 1.4);
+            // 2. 회전 (Yaw)
+            const d_left = dist(p_nose, p_lear);
+            const d_right = dist(p_nose, p_rear) || 1;
+            const yawRatio = d_left / d_right;
             
-            // UI 업데이트
+            // 3. 숙임각 (Pitch) - 상대 좌표(0.0~1.0) 사용으로 해상도 무관하게 계산
+            const noseY = landmarks[1].y;
+            const earsY = (landmarks[234].y + landmarks[454].y) / 2;
+            const pitchDiff = (noseY - earsY) * 100;
+
+            // --- 판독 기준 ---
+            const TH_MOUTH = 7.0; 
+            const YAW_MIN = 0.6; const YAW_MAX = 1.4;
+            const PITCH_MIN = 3.0; const PITCH_MAX = 15.0; // 코가 귀보다 약간 아래에 있어야 함
+
+            // --- 상태 판단 ---
+            let isReady = false;
+            let msg = "";
+            
+            if (yawRatio < YAW_MIN) msg = "고개를 오른쪽으로 👉";
+            else if (yawRatio > YAW_MAX) msg = "👈 고개를 왼쪽으로";
+            else if (pitchDiff < PITCH_MIN) msg = "턱을 당기세요 ↓";
+            else if (pitchDiff > PITCH_MAX) msg = "턱을 드세요 ↑";
+            else if (mouthRatio < TH_MOUTH) msg = "입을 더 크게 '아~' 😮";
+            else {
+                isReady = true;
+                msg = "촬영 가능 (READY)";
+            }
+
+            // --- UI 업데이트 ---
             let color = isReady ? "#00FF00" : "#FF0055"; // 초록 vs 핫핑크
-            mainMsg.innerText = isReady ? "촬영 가능 (READY)" : "조정 필요";
+            
+            mainMsg.innerText = msg;
             mainMsg.style.color = color;
             statusBg.style.borderColor = color;
 
@@ -118,39 +151,49 @@
             valPitch.innerText = pitchDiff.toFixed(1);
             valYaw.innerText = yawRatio.toFixed(2);
 
-            // --- [시각화 강화] 선을 아주 두껍게 그림 ---
-            ctx.lineWidth = 4; // 선 두께 4 (매우 두꺼움)
+            // 수치별 색상 (조건 불만족 시 빨간색)
+            valMouth.style.color = (mouthRatio < TH_MOUTH) ? "red" : "#00FF00";
+            valYaw.style.color = (yawRatio < YAW_MIN || yawRatio > YAW_MAX) ? "red" : "#00FF00";
+            valPitch.style.color = (pitchDiff < PITCH_MIN || pitchDiff > PITCH_MAX) ? "red" : "#00FF00";
+
+
+            // --- [시각화] 선을 아주 두껍게 그림 (모바일에서 잘 보이게) ---
+            ctx.lineWidth = 4; 
             ctx.lineCap = "round";
             ctx.strokeStyle = color;
             ctx.fillStyle = color;
 
-            // 1. 십자선 그리기
+            // 1. 십자선 (Alignment Crosshair)
             ctx.beginPath();
-            ctx.moveTo(p_top.x, p_top.y); ctx.lineTo(p_bottom.x, p_bottom.y);
+            ctx.moveTo(p_top.x, p_top.y); ctx.lineTo(p_bottom.x, p_bottom.y); // 세로
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(p_lear.x, p_lear.y); ctx.lineTo(p_rear.x, p_rear.y); // 가로(귀-귀)
             ctx.stroke();
 
+            // 2. 코 (중심점)
             ctx.beginPath();
-            ctx.moveTo(p_lear.x, p_lear.y); ctx.lineTo(p_rear.x, p_rear.y); // 귀-귀 연결선
-            ctx.stroke();
-
-            // 2. 코에 왕점 찍기
-            ctx.beginPath();
-            ctx.arc(p_nose.x, p_nose.y, 10, 0, 2*Math.PI); // 반지름 10 (큰 점)
+            ctx.arc(p_nose.x, p_nose.y, 8, 0, 2*Math.PI);
             ctx.fill();
 
-            // 3. 입술 위아래 점 찍기
-            ctx.fillStyle = "yellow"; // 입술 점은 노란색으로 포인트
-            ctx.beginPath(); ctx.arc(p_ulip.x, p_ulip.y, 5, 0, 2*Math.PI); ctx.fill();
-            ctx.beginPath(); ctx.arc(p_llip.x, p_llip.y, 5, 0, 2*Math.PI); ctx.fill();
+            // 3. 입술 포인트
+            ctx.fillStyle = "yellow";
+            ctx.beginPath(); ctx.arc(p_ulip.x, p_ulip.y, 4, 0, 2*Math.PI); ctx.fill();
+            ctx.beginPath(); ctx.arc(p_llip.x, p_llip.y, 4, 0, 2*Math.PI); ctx.fill();
         }
 
         const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
         faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
         faceMesh.onResults(onResults);
 
+        // [모바일 핵심 3] 카메라 해상도를 고정하지 않고 'ideal'로 요청
+        // width: 1280 같은 강제 설정을 빼야 모바일 세로 모드에서 정상 작동함
         const camera = new Camera(videoElement, {
             onFrame: async () => { await faceMesh.send({image: videoElement}); },
-            width: 1280, height: 720
+            width: { ideal: 1280 }, // 강제가 아닌 권장 사항으로 변경
+            height: { ideal: 720 },
+            facingMode: "user" // 전면 카메라 우선
         });
         camera.start();
     </script>
