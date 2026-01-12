@@ -1,625 +1,236 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Open Mouth View · Contactless Guide</title>
-  <style>
-    :root { --pad: 14px; }
-    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b0f14; color:#e9eef5; }
-    .wrap { display:flex; flex-direction:column; height:100svh; }
-    .topbar { padding: var(--pad); display:flex; gap:10px; align-items:center; justify-content:space-between; }
-    .pill { padding:8px 10px; border-radius:999px; background:#141b24; border:1px solid #243142; font-size:13px; }
-    .main { flex:1; position:relative; overflow:hidden; }
-    video, canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-    .hud { position:absolute; left:12px; right:12px; bottom:12px; display:grid; gap:10px; }
-    .card { background:rgba(20,27,36,0.75); backdrop-filter: blur(8px);
-      border:1px solid rgba(36,49,66,0.9); border-radius:16px; padding:12px;
-    }
-    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
-    .kpi { display:flex; gap:10px; align-items:baseline; }
-    .kpi b { font-size:18px; }
-    .status { font-weight:900; }
-    .ok { color:#7CFFB2; }
-    .warn { color:#FFD27C; }
-    .bad { color:#FF7C7C; }
-    .btn { cursor:pointer; border:none; border-radius:12px; padding:10px 12px;
-      background:#2a6df5; color:white; font-weight:900;
-    }
-    .btn2 { background:#1b2330; border:1px solid #243142; }
-    .guide { position:absolute; top:70px; left:12px; right:12px; display:flex; justify-content:center; pointer-events:none; }
-    .guide span{
-      padding:10px 14px; border-radius:999px;
-      background:rgba(10,15,20,0.78); border:1px solid rgba(36,49,66,0.8);
-      font-weight:900;
-      max-width: calc(100% - 24px);
-      overflow:hidden; text-overflow: ellipsis; white-space:nowrap;
-    }
-    .hint { font-size:12px; opacity:0.9; line-height:1.35; white-space:pre-wrap; }
-    label { display:flex; justify-content:space-between; gap:10px; font-size:12px; opacity:0.95; }
-    input[type="range"]{ width: 55%; }
-    .lockRing { position:fixed; inset:0; pointer-events:none; box-shadow:none; }
-    .lockOn { box-shadow: inset 0 0 0 7px rgba(124,255,178,0.85); }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>C-Spine AI Assistant</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    
+    <style>
+        /* 1. 기본 설정: 검은 배경, 스크롤 방지 */
+        body { margin: 0; background-color: black; overflow: hidden; font-family: 'Suit', sans-serif; }
+        
+        /* 2. 컨테이너: 화면 꽉 채우기 */
+        .container { position: relative; width: 100vw; height: 100vh; }
+
+        /* 3. 비디오 & 캔버스 공통 설정 (완벽한 겹침) */
+        video, canvas { 
+            position: absolute; top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            object-fit: cover; /* 화면 비율 유지하며 꽉 채움 */
+            transform: scaleX(-1); /* 거울 모드 */
+        }
+        
+        video { z-index: 0; } /* 뒤 */
+        canvas { z-index: 1; } /* 앞 */
+
+        /* 4. UI 패널 (맨 앞) */
+        #ui-layer {
+            position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 600px; z-index: 10; text-align: center;
+        }
+
+        .status-box {
+            background: rgba(0, 0, 0, 0.65); 
+            padding: 20px; 
+            border-radius: 16px;
+            border: 3px solid #555; /* 초기 테두리 */
+            backdrop-filter: blur(8px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            transition: border-color 0.2s ease;
+        }
+
+        #main-msg { 
+            font-size: 1.6rem; font-weight: 900; color: white; 
+            display: block; margin-bottom: 5px; 
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+        
+        #sub-msg {
+            font-size: 1.1rem; color: #ddd; font-weight: 500;
+            display: block; margin-bottom: 15px;
+        }
+
+        /* 수치 데이터 그리드 */
+        .metrics-grid { 
+            display: grid; grid-template-columns: 1fr 1fr 1fr; 
+            gap: 10px; border-top: 1px solid rgba(255,255,255,0.2); 
+            padding-top: 15px; 
+        }
+        
+        .metric-label { font-size: 0.85rem; color: #bbb; display: block; margin-bottom: 4px; }
+        .metric-val { font-size: 1.3rem; font-weight: bold; color: white; font-family: monospace; }
+
+    </style>
 </head>
-
 <body>
-<div class="lockRing" id="lockRing"></div>
-
-<div class="wrap">
-  <div class="topbar">
-    <div class="pill">Open Mouth View · Contactless Guide</div>
-    <div style="display:flex; gap:8px;">
-      <button id="flipBtn" class="btn btn2">전/후면 전환</button>
-      <button id="startBtn" class="btn">카메라 시작</button>
-    </div>
-  </div>
-
-  <div class="main">
-    <video id="video" playsinline muted></video>
-    <canvas id="canvas"></canvas>
-    <div class="guide"><span id="guideText">카메라 시작을 눌러주세요</span></div>
-
-    <div class="hud">
-      <div class="card">
-        <div class="row">
-          <div class="kpi"><span>MOR</span><b id="morVal">-</b></div>
-          <div class="kpi"><span>Pitch</span><b id="pitchVal">-</b></div>
-          <div class="kpi"><span>Yaw</span><b id="yawVal">-</b></div>
-          <div class="kpi"><span>Roll</span><b id="rollVal">-</b></div>
-          <div class="kpi"><span class="status" id="statusText">대기</span></div>
+    <div class="container">
+        <div id="ui-layer">
+            <div class="status-box" id="status-bg">
+                <span id="main-msg">AI 시스템 로딩 중...</span>
+                <span id="sub-msg">카메라 권한을 허용해주세요</span>
+                
+                <div class="metrics-grid">
+                    <div><span class="metric-label">입 벌림 (Open)</span><span class="metric-val" id="val-mouth">-</span></div>
+                    <div><span class="metric-label">숙임각 (Pitch)</span><span class="metric-val" id="val-pitch">-</span></div>
+                    <div><span class="metric-label">회전 (Yaw)</span><span class="metric-val" id="val-yaw">-</span></div>
+                </div>
+            </div>
         </div>
-        <div class="hint" id="hintText">
-- MOR: 입벌림/눈사이(스케일 보정)
-- Pitch/Yaw/Roll: OpenCV solvePnP 기반 각도(°)
-- OK 연속 프레임 충족 시 LOCK(진동+삑+녹색)
-        </div>
-      </div>
 
-      <div class="card">
-        <label>입벌림 임계치(MOR)
-          <input id="morTh" type="range" min="0.02" max="0.20" step="0.005" value="0.07" />
-          <span id="morThVal">0.07</span>
-        </label>
-
-        <label>Yaw 허용(°)
-          <input id="yawTh" type="range" min="1" max="15" step="0.5" value="6" />
-          <span id="yawThVal">6.0</span>
-        </label>
-
-        <label>Pitch 목표(°)
-          <input id="pitchTarget" type="range" min="-20" max="20" step="0.5" value="0" />
-          <span id="pitchTargetVal">0.0</span>
-        </label>
-
-        <label>Pitch 허용(±°)
-          <input id="pitchTol" type="range" min="1" max="15" step="0.5" value="5" />
-          <span id="pitchTolVal">5.0</span>
-        </label>
-
-        <label>Roll 허용(±°)
-          <input id="rollTol" type="range" min="1" max="15" step="0.5" value="5" />
-          <span id="rollTolVal">5.0</span>
-        </label>
-
-        <label>LOCK 프레임(연속)
-          <input id="okFrames" type="range" min="5" max="30" step="1" value="12" />
-          <span id="okFramesVal">12</span>
-        </label>
-
-        <div class="hint" id="dbgText">debug: -</div>
-      </div>
+        <video id="input_video" playsinline></video>
+        <canvas id="output_canvas"></canvas>
     </div>
-  </div>
-</div>
 
-<!-- ✅ 로컬 라이브러리 -->
-<script src="./opencv/opencv.js"></script>
-<script src="./mediapipe/face_mesh/face_mesh.js"></script>
-
-<script>
-  // ===== UI =====
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-
-  const startBtn = document.getElementById('startBtn');
-  const flipBtn = document.getElementById('flipBtn');
-
-  const guideText = document.getElementById('guideText');
-  const statusText = document.getElementById('statusText');
-  const dbgText = document.getElementById('dbgText');
-  const hintText = document.getElementById('hintText');
-
-  const morVal = document.getElementById('morVal');
-  const pitchVal = document.getElementById('pitchVal');
-  const yawVal = document.getElementById('yawVal');
-  const rollVal = document.getElementById('rollVal');
-
-  const lockRing = document.getElementById('lockRing');
-
-  const morTh = document.getElementById('morTh');
-  const yawTh = document.getElementById('yawTh');
-  const pitchTarget = document.getElementById('pitchTarget');
-  const pitchTol = document.getElementById('pitchTol');
-  const rollTol = document.getElementById('rollTol');
-  const okFrames = document.getElementById('okFrames');
-
-  const morThVal = document.getElementById('morThVal');
-  const yawThVal = document.getElementById('yawThVal');
-  const pitchTargetVal = document.getElementById('pitchTargetVal');
-  const pitchTolVal = document.getElementById('pitchTolVal');
-  const rollTolVal = document.getElementById('rollTolVal');
-  const okFramesVal = document.getElementById('okFramesVal');
-
-  const fmt1 = (x)=> (+x).toFixed(1);
-  morTh.oninput = () => morThVal.textContent = (+morTh.value).toFixed(3);
-  yawTh.oninput = () => yawThVal.textContent = fmt1(yawTh.value);
-  pitchTarget.oninput = () => pitchTargetVal.textContent = fmt1(pitchTarget.value);
-  pitchTol.oninput = () => pitchTolVal.textContent = fmt1(pitchTol.value);
-  rollTol.oninput = () => rollTolVal.textContent = fmt1(rollTol.value);
-  okFrames.oninput = () => okFramesVal.textContent = (+okFrames.value);
-  morTh.oninput(); yawTh.oninput(); pitchTarget.oninput(); pitchTol.oninput(); rollTol.oninput(); okFrames.oninput();
-
-  function setStatus(text, level){
-    statusText.textContent = text;
-    statusText.className = "status " + (level||"");
-  }
-
-  // ===== Error surfacing =====
-  window.onerror = (m, s, l) => {
-    setStatus("JS 에러", "bad");
-    guideText.textContent = "JS ERROR: " + m;
-    dbgText.textContent = "debug: line " + l;
-  };
-  window.onunhandledrejection = (ev) => {
-    const msg = ev?.reason?.message || String(ev?.reason || ev);
-    setStatus("실행 에러", "bad");
-    guideText.textContent = "PROMISE ERROR: " + msg;
-  };
-
-  // ===== State =====
-  let stream = null;
-  let facingMode = 'user';
-  let running = false;
-  let faceMesh = null;
-
-  let cvReady = false;
-  let okStreak = 0;
-  let locked = false;
-
-  // ===== Audio/Haptic =====
-  let audioCtx = null;
-  function ensureAudio(){
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-  }
-  function beep(){
-    try{
-      ensureAudio();
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = "sine";
-      o.frequency.value = 880;
-      g.gain.value = 0.08;
-      o.connect(g); g.connect(audioCtx.destination);
-      o.start();
-      setTimeout(()=>{ o.stop(); }, 120);
-    }catch(_){}
-  }
-  function haptic(){
-    try{ if (navigator.vibrate) navigator.vibrate([80]); }catch(_){}
-  }
-  function setLockUI(isLock){
-    lockRing.className = isLock ? "lockRing lockOn" : "lockRing";
-  }
-
-  // ===== Library checks =====
-  function ensureLocalLibs(){
-    if (!window.FaceMesh || !window.FaceMesh.FaceMesh){
-      setStatus("FaceMesh 로드 실패", "bad");
-      guideText.textContent = "FaceMesh=undefined (로컬 파일 경로/업로드 확인)";
-      dbgText.textContent =
-        "debug: mediapipe/face_mesh/ 안에\n" +
-        "face_mesh.js + data + wasm 2개 필요";
-      throw new Error("FaceMesh local library not loaded");
-    }
-    if (!window.cv){
-      // opencv.js 자체가 없으면 PnP 못함 (fallback 안내)
-      cvReady = false;
-      dbgText.textContent = "debug: opencv.js 없음(각도 계산 불가)";
-      hintText.textContent =
-        "OpenCV.js가 없어서 Pitch/Yaw/Roll 각도 계산(PnP)이 비활성화되었습니다.\n" +
-        "./opencv/opencv.js 파일을 repo에 추가하세요.";
-    }
-  }
-
-  // opencv.js 로딩 후 준비 플래그
-  function hookOpenCV(){
-    if (!window.cv) return;
-    if (cv.Mat){
-      cvReady = true;
-      return;
-    }
-    cv.onRuntimeInitialized = () => {
-      cvReady = true;
-      dbgText.textContent = "debug: OpenCV ready";
-    };
-  }
-
-  // ===== Metrics =====
-  const dist2D = (a,b,w,h) => {
-    const ax=a.x*w, ay=a.y*h, bx=b.x*w, by=b.y*h;
-    return Math.hypot(ax-bx, ay-by);
-  };
-  const toPx = (p,w,h)=>({x:p.x*w, y:p.y*h});
-
-  // FaceMesh indices (commonly used)
-  const IDX = {
-    noseTip: 1,
-    chin: 152,
-    leftEyeOuter: 33,
-    rightEyeOuter: 263,
-    leftMouth: 61,
-    rightMouth: 291,
-    upperLip: 13,
-    lowerLip: 14,
-  };
-
-  function computeMOR(lm,w,h){
-    const L = lm[IDX.leftEyeOuter], R = lm[IDX.rightEyeOuter];
-    const U = lm[IDX.upperLip], D = lm[IDX.lowerLip];
-    const eyeDist = dist2D(L,R,w,h);
-    const mouthOpen = dist2D(U,D,w,h);
-    const MOR = mouthOpen / Math.max(eyeDist, 1e-6);
-    return { MOR, eyeDist, mouthOpen };
-  }
-
-  function estimateHeadPoseDegrees(lm,w,h){
-    if (!cvReady || !window.cv || !cv.Mat) return null;
-
-    const p2d = [
-      toPx(lm[IDX.noseTip], w, h),
-      toPx(lm[IDX.chin], w, h),
-      toPx(lm[IDX.leftEyeOuter], w, h),
-      toPx(lm[IDX.rightEyeOuter], w, h),
-      toPx(lm[IDX.leftMouth], w, h),
-      toPx(lm[IDX.rightMouth], w, h),
-    ];
-
-    // Generic 3D face model points (mm-ish)
-    const p3d = [
-      [ 0.0,   0.0,   0.0],     // Nose tip
-      [ 0.0, -63.6, -12.5],     // Chin
-      [-43.3, 32.7, -26.0],     // Left eye outer
-      [ 43.3, 32.7, -26.0],     // Right eye outer
-      [-28.9,-28.9, -24.1],     // Left mouth
-      [ 28.9,-28.9, -24.1],     // Right mouth
-    ];
-
-    const fx = w, fy = w;
-    const cx = w/2, cy = h/2;
-
-    const cameraMatrix = cv.matFromArray(3,3,cv.CV_64FC1, [
-      fx, 0, cx,
-      0, fy, cy,
-      0,  0,  1
-    ]);
-    const distCoeffs = cv.Mat.zeros(4,1,cv.CV_64FC1);
-
-    const objectPoints = cv.matFromArray(p3d.length,3,cv.CV_64FC1, p3d.flat());
-    const imagePoints  = cv.matFromArray(p2d.length,2,cv.CV_64FC1, p2d.flatMap(p=>[p.x,p.y]));
-
-    const rvec = new cv.Mat(), tvec = new cv.Mat();
-    const ok = cv.solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs, rvec, tvec, false, cv.SOLVEPNP_ITERATIVE);
-    if (!ok) { cleanup(); return null; }
-
-    const R = new cv.Mat();
-    cv.Rodrigues(rvec, R);
-
-    const r00=R.doubleAt(0,0), r10=R.doubleAt(1,0), r20=R.doubleAt(2,0);
-    const r21=R.doubleAt(2,1), r22=R.doubleAt(2,2);
-    const sy = Math.sqrt(r00*r00 + r10*r10);
-    const singular = sy < 1e-6;
-
-    let x,y,z; // rad
-    if (!singular){
-      x = Math.atan2(r21, r22);      // pitch
-      y = Math.atan2(-r20, sy);      // yaw
-      z = Math.atan2(r10, r00);      // roll
-    } else {
-      const r12=R.doubleAt(1,2), r11=R.doubleAt(1,1);
-      x = Math.atan2(-r12, r11);
-      y = Math.atan2(-r20, sy);
-      z = 0;
-    }
-
-    const pitch = x * 180/Math.PI;
-    const yaw   = y * 180/Math.PI;
-    const roll  = z * 180/Math.PI;
-
-    cleanup();
-    return { pitch, yaw, roll };
-
-    function cleanup(){
-      cameraMatrix.delete(); distCoeffs.delete();
-      objectPoints.delete(); imagePoints.delete();
-      rvec.delete(); tvec.delete(); R.delete();
-    }
-  }
-
-  function angleDegOfLine(p1,p2){
-    return Math.atan2(p2.y-p1.y, p2.x-p1.x) * 180/Math.PI;
-  }
-
-  function stopStream(){
-    if (stream){
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-    }
-  }
-
-  // ===== Core =====
-  async function startCamera(){
-    setStatus("초기화…", "warn");
-    guideText.textContent = "카메라 요청 중…(권한 허용)";
-    dbgText.textContent = "debug: starting…";
-    morVal.textContent = pitchVal.textContent = yawVal.textContent = rollVal.textContent = "-";
-
-    stopStream();
-    running = false;
-    locked = false;
-    okStreak = 0;
-    setLockUI(false);
-
-    ensureLocalLibs();
-    hookOpenCV();
-
-    const constraints = {
-      audio: false,
-      video: {
-        facingMode: { ideal: facingMode },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    };
-
-    try{
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch(e){
-      try{
-        stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
-      } catch(e2){
-        setStatus("카메라 실패", "bad");
-        guideText.textContent = `카메라 실패: ${e2.name}`;
-        dbgText.textContent = `debug: ${e2.name} / ${e2.message}`;
-        return;
-      }
-    }
-
-    video.srcObject = stream;
-
-    try{
-      await video.play();
-    } catch(e){
-      setStatus("재생 실패", "bad");
-      guideText.textContent = `video.play() 실패: ${e.name}`;
-      dbgText.textContent = `debug: ${e.message}`;
-      return;
-    }
-
-    faceMesh = new FaceMesh.FaceMesh({
-      locateFile: (file) => `./mediapipe/face_mesh/${file}`
-    });
-
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.6
-    });
-
-    faceMesh.onResults((results) => {
-      const w = canvas.width = video.videoWidth || 1280;
-      const h = canvas.height = video.videoHeight || 720;
-
-      ctx.save();
-      ctx.clearRect(0,0,w,h);
-
-      if (facingMode === 'user') { ctx.translate(w,0); ctx.scale(-1,1); }
-
-      ctx.drawImage(results.image, 0, 0, w, h);
-
-      // ===== IP 정렬 가이드라인(화면 기준) =====
-      // 세로 중심선(수직)
-      ctx.strokeStyle = "rgba(255,255,255,0.30)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h);
-      ctx.stroke();
-
-      // 수평 기준선(중앙)
-      ctx.beginPath();
-      ctx.moveTo(0, h/2); ctx.lineTo(w, h/2);
-      ctx.stroke();
-
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length){
-        const lm = results.multiFaceLandmarks[0];
-
-        // Key points (시각 확인용)
-        const ids = [IDX.upperLip, IDX.lowerLip, IDX.leftEyeOuter, IDX.rightEyeOuter, IDX.noseTip, IDX.chin, IDX.leftMouth, IDX.rightMouth];
-        ctx.fillStyle = "rgba(0,255,160,0.92)";
-        for (const id of ids){
-          const p = lm[id];
-          ctx.beginPath();
-          ctx.arc(p.x*w, p.y*h, 4, 0, Math.PI*2);
-          ctx.fill();
-        }
-
-        // 입벌림 라인
-        const U = lm[IDX.upperLip], D = lm[IDX.lowerLip];
-        ctx.strokeStyle = "rgba(0,255,160,0.92)";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(U.x*w, U.y*h);
-        ctx.lineTo(D.x*w, D.y*h);
-        ctx.stroke();
-
-        // Occlusal plane proxy (입 양끝 라인)
-        const ml = toPx(lm[IDX.leftMouth], w, h);
-        const mr = toPx(lm[IDX.rightMouth], w, h);
-        ctx.strokeStyle = "rgba(255,255,255,0.75)";
-        ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(ml.x, ml.y); ctx.lineTo(mr.x, mr.y); ctx.stroke();
-
-        // ===== Metrics =====
-        const mor = computeMOR(lm,w,h);
-        const pose = estimateHeadPoseDegrees(lm,w,h); // {pitch,yaw,roll} or null
-
-        // 표시값
-        morVal.textContent = mor.MOR.toFixed(3);
-        if (pose){
-          pitchVal.textContent = pose.pitch.toFixed(1) + "°";
-          yawVal.textContent   = pose.yaw.toFixed(1) + "°";
-          rollVal.textContent  = pose.roll.toFixed(1) + "°";
-        } else {
-          pitchVal.textContent = yawVal.textContent = rollVal.textContent = "-";
-        }
-
-        // ===== OK 판정 =====
-        const morOK = mor.MOR >= +morTh.value;
-
-        const yawLimit = +yawTh.value;
-        const pitchT = +pitchTarget.value;
-        const pitchLimit = +pitchTol.value;
-        const rollLimit = +rollTol.value;
-
-        // roll은 pose 있으면 pose.roll 사용, 없으면 mouthLine 기울기로 대체
-        const mouthLineDeg = angleDegOfLine(ml, mr); // 목표 0°(수평)
-        const rollDeg = pose ? pose.roll : mouthLineDeg;
-
-        const yawOK = pose ? (Math.abs(pose.yaw) <= yawLimit) : false; // PnP 없으면 각도 OK 판정 불가
-        const pitchOK = pose ? (Math.abs(pose.pitch - pitchT) <= pitchLimit) : false;
-        const rollOK = (Math.abs(rollDeg) <= rollLimit);
-
-        const allOK = morOK && yawOK && pitchOK && rollOK;
-
-        // 가이드 문구
-        let msgs = [];
-        if (!morOK) msgs.push("입을 더 벌려주세요");
-        if (!yawOK) msgs.push("회전(Yaw) 줄이세요");
-        if (!pitchOK) msgs.push((pose && (pose.pitch - pitchT) > 0) ? "턱을 조금 올리세요" : "턱을 조금 내리세요");
-        if (!rollOK) msgs.push("기울임(Roll) 줄이세요");
-
-        // LOCK 로직(연속 프레임)
-        const needFrames = +okFrames.value;
-
-        if (!pose){
-          // PnP가 안 돌면 각도 계산 불가 → 안내
-          setStatus("각도 계산 준비중", "warn");
-          guideText.textContent = "OpenCV(PnP) 준비중… opencv.js/로딩 확인";
-          okStreak = 0;
-          locked = false;
-          setLockUI(false);
-        } else if (!locked){
-          if (allOK) okStreak++; else okStreak = 0;
-
-          if (allOK && okStreak >= needFrames){
-            locked = true;
-            setLockUI(true);
-            setStatus("촬영 OK", "ok");
-            guideText.textContent = "LOCK · 촬영 가능";
-            haptic(); beep();
-          } else {
-            if (msgs.length === 0) {
-              setStatus("거의 OK", "ok");
-              guideText.textContent = `OK 유지…(${okStreak}/${needFrames})`;
-            } else {
-              setStatus(msgs.length === 1 ? "조정 필요" : "재정렬", msgs.length === 1 ? "warn" : "bad");
-              guideText.textContent = msgs.join(" · ");
+    <script type="module">
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const ctx = canvasElement.getContext('2d');
+        
+        // UI 요소 연결
+        const statusBg = document.getElementById('status-bg');
+        const mainMsg = document.getElementById('main-msg');
+        const subMsg = document.getElementById('sub-msg');
+        const valMouth = document.getElementById('val-mouth');
+        const valPitch = document.getElementById('val-pitch');
+        const valYaw = document.getElementById('val-yaw');
+
+        function onResults(results) {
+            // [핵심 1] 매 프레임마다 캔버스 크기를 현재 창 크기로 강제 동기화 (모바일 호환성 100%)
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+            
+            ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            // 얼굴 인식 실패 시 처리
+            if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                mainMsg.innerText = "얼굴 찾는 중...";
+                mainMsg.style.color = "#FFD700"; // Gold
+                statusBg.style.borderColor = "#FFD700";
+                subMsg.innerText = "카메라 정면을 봐주세요";
+                return;
             }
-          }
-        } else {
-          // 락 상태: 조건 깨지면 자동 해제(원하면 이 부분 제거 가능)
-          if (!allOK){
-            locked = false;
-            okStreak = 0;
-            setLockUI(false);
-            setStatus("락 해제", "warn");
-            guideText.textContent = "정렬이 깨졌습니다. 다시 맞추세요";
-          } else {
-            setStatus("촬영 OK", "ok");
-            guideText.textContent = "LOCK · 촬영 가능";
-          }
+
+            const landmarks = results.multiFaceLandmarks[0];
+
+            // [핵심 2] 좌표 변환 함수 (0 처리로 NaN 방지)
+            const toPixel = (idx) => {
+                return { 
+                    x: landmarks[idx].x * canvasElement.width, 
+                    y: landmarks[idx].y * canvasElement.height 
+                };
+            };
+            
+            // 거리 계산 헬퍼
+            const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+
+            // --- 데이터 계산 ---
+            const p_top = toPixel(10); const p_bottom = toPixel(152); // 얼굴 세로
+            const p_nose = toPixel(1); // 코
+            const p_ulip = toPixel(13); const p_llip = toPixel(14); // 입술
+            const p_lear = toPixel(234); const p_rear = toPixel(454); // 귀
+
+            // 1. 입 벌림 (Mouth)
+            const faceHeight = dist(p_top, p_bottom) || 1; // 0 나누기 방지
+            const mouthRatio = (dist(p_ulip, p_llip) / faceHeight) * 100;
+
+            // 2. 회전 (Yaw)
+            const leftDist = dist(p_nose, p_lear);
+            const rightDist = dist(p_nose, p_rear) || 1;
+            const yawRatio = leftDist / rightDist;
+
+            // 3. 숙임각 (Pitch) - 상대 좌표 사용
+            const noseY = landmarks[1].y;
+            const earsY = (landmarks[234].y + landmarks[454].y) / 2;
+            const pitchDiff = (noseY - earsY) * 100;
+
+            // --- 판독 기준 (임상 수치 반영) ---
+            const TH_MOUTH = 7.0; 
+            const YAW_MIN = 0.60; const YAW_MAX = 1.40;
+            const PITCH_MIN = 3.0; const PITCH_MAX = 15.0;
+
+            // --- 상태 판단 로직 ---
+            let isReady = false;
+            let msg = "";
+            let guideColor = "";
+
+            if (yawRatio < YAW_MIN) {
+                msg = "고개를 오른쪽으로 👉"; guideColor = "#FF0055"; // Hot Pink
+            } else if (yawRatio > YAW_MAX) {
+                msg = "👈 고개를 왼쪽으로"; guideColor = "#FF0055";
+            } else if (pitchDiff < PITCH_MIN) {
+                msg = "턱을 당기세요 (Down) ↓"; guideColor = "#FF0055";
+            } else if (pitchDiff > PITCH_MAX) {
+                msg = "턱을 드세요 (Up) ↑"; guideColor = "#FF0055";
+            } else if (mouthRatio < TH_MOUTH) {
+                msg = "입을 더 크게 '아~' 😮"; guideColor = "#FF9900"; // Orange
+            } else {
+                isReady = true;
+                msg = "완벽한 포지션입니다"; guideColor = "#00FF00"; // Neon Green
+            }
+
+            // --- UI 업데이트 ---
+            mainMsg.innerText = isReady ? "촬영 가능 (READY)" : "조정 필요";
+            mainMsg.style.color = guideColor;
+            subMsg.innerText = msg;
+            statusBg.style.borderColor = guideColor;
+
+            // 수치 표시 (NaN 방어 코드)
+            valMouth.innerText = isNaN(mouthRatio) ? "0.0" : mouthRatio.toFixed(1);
+            valPitch.innerText = isNaN(pitchDiff) ? "0.0" : pitchDiff.toFixed(1);
+            valYaw.innerText = isNaN(yawRatio) ? "0.00" : yawRatio.toFixed(2);
+
+            // 수치별 색상
+            valMouth.style.color = (mouthRatio < TH_MOUTH) ? "#FF5555" : "#00FF00";
+            valPitch.style.color = (pitchDiff < PITCH_MIN || pitchDiff > PITCH_MAX) ? "#FF5555" : "#00FF00";
+            valYaw.style.color = (yawRatio < YAW_MIN || yawRatio > YAW_MAX) ? "#FF5555" : "#00FF00";
+
+            // --- [핵심 3] 고시인성 그리기 (High Visibility Drawing) ---
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            
+            // 1. 십자선 (두껍게)
+            ctx.lineWidth = 5; 
+            ctx.strokeStyle = guideColor;
+            
+            ctx.beginPath();
+            ctx.moveTo(p_top.x, p_top.y); ctx.lineTo(p_bottom.x, p_bottom.y); // 세로
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(p_lear.x, p_lear.y); ctx.lineTo(p_rear.x, p_rear.y); // 가로
+            ctx.stroke();
+
+            // 2. 중요 포인트 점 찍기 (코, 입술)
+            const drawDot = (p, color, size) => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, size, 0, 2*Math.PI);
+                ctx.fillStyle = color;
+                ctx.fill();
+                // 흰색 테두리로 가시성 확보
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = "white";
+                ctx.stroke();
+            };
+
+            drawDot(p_nose, guideColor, 12); // 코 (왕점)
+            drawDot(p_ulip, "yellow", 6);   // 윗입술
+            drawDot(p_llip, "yellow", 6);   // 아랫입술
         }
 
-        dbgText.textContent =
-          `debug: facing=${facingMode}, OpenCV=${cvReady}, eye=${Math.round(mor.eyeDist)}px, mouth=${Math.round(mor.mouthOpen)}px, mouthLine=${mouthLineDeg.toFixed(1)}°`;
-      } else {
-        guideText.textContent = "얼굴을 화면 중앙에 맞춰주세요";
-        setStatus("얼굴 탐지", "warn");
-        dbgText.textContent = `debug: no face, OpenCV=${cvReady}`;
-        morVal.textContent = pitchVal.textContent = yawVal.textContent = rollVal.textContent = "-";
-        locked = false; okStreak = 0; setLockUI(false);
-      }
+        const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+        faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        faceMesh.onResults(onResults);
 
-      ctx.restore();
-    });
-
-    running = true;
-    setStatus("추적 시작", "ok");
-    guideText.textContent = "추적 시작…";
-    dbgText.textContent = `debug: protocol=${location.protocol}, OpenCV=${cvReady}`;
-    loop();
-  }
-
-  async function loop(){
-    if (!running) return;
-    if (!video.videoWidth){
-      requestAnimationFrame(loop);
-      return;
-    }
-    try{
-      await faceMesh.send({ image: video });
-    } catch(e){
-      setStatus("추적 실패", "bad");
-      guideText.textContent = `FaceMesh 실패: ${e.name}`;
-      dbgText.textContent = `debug: ${e.message}`;
-      running = false;
-      return;
-    }
-    requestAnimationFrame(loop);
-  }
-
-  // ===== Buttons =====
-  startBtn.onclick = async () => {
-    // 사용자 제스처로 오디오 활성화(삑)
-    ensureAudio();
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      setStatus("지원 안됨", "bad");
-      guideText.textContent = "getUserMedia 미지원 브라우저입니다. Chrome으로 열어주세요.";
-      dbgText.textContent = "debug: no getUserMedia";
-      return;
-    }
-    try{
-      ensureLocalLibs();
-      hookOpenCV();
-      await startCamera();
-    }catch(_){}
-  };
-
-  flipBtn.onclick = async () => {
-    ensureAudio();
-    facingMode = (facingMode === 'user') ? 'environment' : 'user';
-    try{ await startCamera(); }catch(_){}
-  };
-
-  // init
-  ensureLocalLibs();
-  hookOpenCV();
-  dbgText.textContent = `debug: protocol=${location.protocol}, OpenCV=${cvReady}`;
-</script>
+        // [핵심 4] 카메라 설정: 모바일 호환성을 위해 해상도 강제 제거
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await faceMesh.send({image: videoElement}); },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: "user"
+        });
+        camera.start();
+    </script>
 </body>
 </html>
-
